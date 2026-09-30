@@ -1,0 +1,5 @@
+# Produced by glib-compile-schemas when testing in this directory.
+schemas/gschemas.compiled
+
+# Produced by `gnome-extensions pack`.
+*.shell-extension.zip

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.price-extension" path="/org/gnome/shell/extensions/price-extension/">
+    <key name="show-usdt" type="b">
+      <default>true</default>
+      <summary>Show USDT price</summary>
+      <description>Show the Bitpin USDT/IRT price in the top bar.</description>
+    </key>
+    <key name="show-gold" type="b">
+      <default>true</default>
+      <summary>Show gold price</summary>
+      <description>Show the Talasea gold price in the top bar.</description>
+    </key>
+    <key name="show-silver" type="b">
+      <default>false</default>
+      <summary>Show silver price</summary>
+      <description>Show the Noghresea silver price in the top bar.</description>
+    </key>
+    <key name="show-copper" type="b">
+      <default>false</default>
+      <summary>Show copper price</summary>
+      <description>Show the Meschi copper price in the top bar.</description>
+    </key>
+    <key name="placement" type="s">
+      <choices>
+        <choice value="left"/>
+        <choice value="center"/>
+        <choice value="right"/>
+      </choices>
+      <default>'right'</default>
+      <summary>Indicator placement</summary>
+      <description>Which part of the top bar the indicators use.</description>
+    </key>
+    <key name="position" type="i">
+      <default>0</default>
+      <range min="0" max="20"/>
+      <summary>Indicator order</summary>
+      <description>Position within the chosen side of the top bar. 0 is the leftmost; higher values move the indicators to the right.</description>
+    </key>
+  </schema>
+</schemalist>
