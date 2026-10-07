@@ -6,6 +6,11 @@ import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 
 import {
+  customFeedToSpec,
+  parseCustomFeedsJson,
+  serializeCustomFeeds,
+} from "./lib/custom-feeds.js";
+import {
   FEEDS,
   PLACEMENTS,
   REFRESH_SECONDS,
@@ -18,15 +23,12 @@ export default class PriceExtension extends Extension {
     this._settings = this.getSettings();
     this._session = new Soup.Session({ timeout: 10 });
     // Noghresea answers the first request with a cookie, then the price.
-    this._session.add_feature(new Soup.CookieJar());
+    // CookieJar also overwrites any manual Cookie header on send, so feed
+    // Cookie headers are injected into the jar in _applyRequestHeaders.
+    this._cookieJar = new Soup.CookieJar();
+    this._session.add_feature(this._cookieJar);
     this._cancellable = new Gio.Cancellable();
-    this._feeds = FEEDS.map((spec) => ({
-      spec,
-      refreshing: false,
-      lastPrice: null,
-      lastSuccess: null,
-      error: false,
-    }));
+    this._feeds = [];
     this._indicator = null;
     this._lastRefresh = null;
 
@@ -34,16 +36,20 @@ export default class PriceExtension extends Extension {
     this._settingIds = [
       this._settings.connect("changed::placement", rebuild),
       this._settings.connect("changed::position", rebuild),
+      this._settings.connect("changed::custom-feeds", () =>
+        this._onCustomFeedsChanged(),
+      ),
     ];
-    for (const feed of this._feeds) {
+    for (const spec of FEEDS) {
       this._settingIds.push(
         this._settings.connect(
-          `changed::${feed.spec.settingsKey}`,
-          (_settings, key) => this._onFeedSettingChanged(key),
+          `changed::${spec.settingsKey}`,
+          (_settings, key) => this._onBuiltinFeedSettingChanged(key),
         ),
       );
     }
 
+    this._loadFeeds();
     this._rebuildIndicators();
 
     this._onTick = () => {
@@ -76,6 +82,7 @@ export default class PriceExtension extends Extension {
 
     this._feeds = null;
     this._session = null;
+    this._cookieJar = null;
     this._cancellable = null;
     this._settings = null;
     this._lastRefresh = null;
@@ -92,7 +99,79 @@ export default class PriceExtension extends Extension {
     return position >= 0 ? position : 0;
   }
 
-  _onFeedSettingChanged(key) {
+  _isFeedEnabled(spec) {
+    if (spec.custom) return spec.enabled !== false;
+    return this._settings.get_boolean(spec.settingsKey);
+  }
+
+  _loadFeeds() {
+    const previous = new Map(
+      (this._feeds ?? []).map((feed) => [feed.spec.role, feed]),
+    );
+    const next = [];
+
+    for (const spec of FEEDS) {
+      const prior = previous.get(spec.role);
+      next.push({
+        spec,
+        refreshing: prior?.refreshing ?? false,
+        lastPrice: prior?.lastPrice ?? null,
+        lastSuccess: prior?.lastSuccess ?? null,
+        error: prior?.error ?? false,
+      });
+    }
+
+    const custom = parseCustomFeedsJson(
+      this._settings.get_string("custom-feeds"),
+    );
+    for (const stored of custom) {
+      const spec = customFeedToSpec(stored);
+      if (!spec.priceFrom) continue;
+
+      const prior = previous.get(spec.role);
+      const definitionChanged =
+        prior &&
+        (prior.spec.url !== spec.url ||
+          prior.spec.priceFromSource !== spec.priceFromSource ||
+          JSON.stringify(prior.spec.headers ?? {}) !==
+            JSON.stringify(spec.headers ?? {}));
+
+      next.push({
+        spec,
+        refreshing: prior?.refreshing ?? false,
+        lastPrice: definitionChanged ? null : (prior?.lastPrice ?? null),
+        lastSuccess: definitionChanged ? null : (prior?.lastSuccess ?? null),
+        error: definitionChanged ? false : (prior?.error ?? false),
+        refetch: Boolean(definitionChanged),
+      });
+    }
+
+    this._feeds = next;
+  }
+
+  _onCustomFeedsChanged() {
+    if (!this._settings) return;
+
+    const previousEnabled = new Map(
+      (this._feeds ?? []).map((feed) => [
+        feed.spec.role,
+        this._isFeedEnabled(feed.spec),
+      ]),
+    );
+
+    this._loadFeeds();
+    this._rebuildIndicators();
+
+    for (const feed of this._feeds) {
+      const enabled = this._isFeedEnabled(feed.spec);
+      const wasEnabled = previousEnabled.get(feed.spec.role);
+      if (enabled && (feed.refetch || wasEnabled === false || wasEnabled == null))
+        this._fetch(feed);
+      feed.refetch = false;
+    }
+  }
+
+  _onBuiltinFeedSettingChanged(key) {
     const feed = this._feeds?.find((item) => item.spec.settingsKey === key);
     if (!feed || !this._settings) return;
 
@@ -101,10 +180,23 @@ export default class PriceExtension extends Extension {
     if (enabled) this._fetch(feed);
   }
 
-  _setFeedEnabled(settingsKey, enabled) {
-    if (!this._settings || this._settings.get_boolean(settingsKey) === enabled)
+  _setFeedEnabled(role, enabled) {
+    const feed = this._feeds?.find((item) => item.spec.role === role);
+    if (!feed || !this._settings) return;
+
+    if (feed.spec.custom) {
+      const custom = parseCustomFeedsJson(
+        this._settings.get_string("custom-feeds"),
+      );
+      const item = custom.find((entry) => entry.id === feed.spec.id);
+      if (!item || item.enabled === enabled) return;
+      item.enabled = enabled;
+      this._settings.set_string("custom-feeds", serializeCustomFeeds(custom));
       return;
-    this._settings.set_boolean(settingsKey, enabled);
+    }
+
+    if (this._settings.get_boolean(feed.spec.settingsKey) === enabled) return;
+    this._settings.set_boolean(feed.spec.settingsKey, enabled);
   }
 
   _rebuildIndicators() {
@@ -114,11 +206,13 @@ export default class PriceExtension extends Extension {
     const entries = this._feeds.map((feed) => ({
       role: feed.spec.role,
       name: feed.spec.label,
-      settingsKey: feed.spec.settingsKey,
-      iconFile: this.dir.get_child("icons").get_child(feed.spec.icon),
+      iconFile: feed.spec.icon
+        ? this.dir.get_child("icons").get_child(feed.spec.icon)
+        : null,
+      color: feed.spec.color ?? null,
       price: feed.lastPrice,
       lastSuccess: feed.lastSuccess,
-      enabled: this._settings.get_boolean(feed.spec.settingsKey),
+      enabled: this._isFeedEnabled(feed.spec),
       error: feed.error,
     }));
 
@@ -127,7 +221,7 @@ export default class PriceExtension extends Extension {
       this._lastRefresh,
       () => this._refresh(),
       () => this.openPreferences(),
-      (settingsKey, enabled) => this._setFeedEnabled(settingsKey, enabled),
+      (role, enabled) => this._setFeedEnabled(role, enabled),
     );
     Main.panel.addToStatusArea(
       `${this.uuid}-prices`,
@@ -141,17 +235,49 @@ export default class PriceExtension extends Extension {
     for (const feed of this._feeds ?? []) this._fetch(feed);
   }
 
-  _fetch(feed) {
-    if (
-      !this._session ||
-      !this._settings?.get_boolean(feed.spec.settingsKey) ||
-      feed.refreshing
-    )
-      return;
+  _applyRequestHeaders(message, headers) {
+    const merged = { "Cache-Control": "no-cache", ...(headers ?? {}) };
+    for (const [name, value] of Object.entries(merged)) {
+      if (name.toLowerCase() === "cookie") {
+        this._injectCookies(message, value);
+        continue;
+      }
+      message.request_headers.replace(name, value);
+    }
+  }
 
+  // CookieJar replaces/removes the Cookie header when the request starts, so a
+  // manual Cookie header never reaches the server. Put feed cookies in the jar.
+  _injectCookies(message, cookieHeader) {
+    const uri = message.get_uri();
+    if (!this._cookieJar || !uri) {
+      message.request_headers.replace("Cookie", cookieHeader);
+      return;
+    }
+
+    for (const part of String(cookieHeader).split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed || !trimmed.includes("=")) continue;
+      this._cookieJar.set_cookie(uri, `${trimmed}; Path=/`);
+    }
+  }
+
+  _fetch(feed) {
+    if (!this._session || !this._settings || !this._isFeedEnabled(feed.spec))
+      return;
+    if (feed.refreshing) return;
+
+    const role = feed.spec.role;
     feed.refreshing = true;
     const message = Soup.Message.new("GET", feed.spec.url);
-    message.request_headers.append("Cache-Control", "no-cache");
+    if (!message) {
+      feed.refreshing = false;
+      feed.error = true;
+      this._indicator?.setFeedError(feed.spec.role, true, feed.lastSuccess);
+      console.error(`${feed.spec.label} price: invalid URL`);
+      return;
+    }
+    this._applyRequestHeaders(message, feed.spec.headers);
 
     this._session.send_and_read_async(
       message,
@@ -160,6 +286,7 @@ export default class PriceExtension extends Extension {
       (session, result) => {
         feed.refreshing = false;
         if (!this._settings) return;
+        if (!this._feeds?.some((item) => item.spec.role === role)) return;
 
         try {
           const bytes = session.send_and_read_finish(result);

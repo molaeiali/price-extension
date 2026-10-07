@@ -1,9 +1,9 @@
 {
   "uuid": "price-extension@en.molaei.org",
   "name": "Prices",
-  "description": "Shows the Bitpin USDT/IRT price, the Talasea gold price, the Noghresea silver price, and the Meschi copper price in the top bar.",
+  "description": "Shows market prices in the top bar, with built-in USDT (Bitpin), Gold (Talasea), Silver (Noghresea), and Copper (Meschi) feeds, plus user-defined custom feeds.",
   "url": "https://github.com/molaeiali/price-extension",
   "settings-schema": "org.gnome.shell.extensions.price-extension",
   "shell-version": ["46", "47", "48", "49", "50"],
-  "version": 1
+  "version": 2
 }

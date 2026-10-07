@@ -1,11 +1,15 @@
 # Prices
 
-A GNOME Shell extension that shows live market prices in the top bar:
+A GNOME Shell extension that shows live market prices in the top bar.
 
-- **USDT** — Bitpin USDT/IRT
-- **Gold** — Talasea
-- **Silver** — Noghresea
-- **Copper** — Meschi
+Built-in feeds:
+
+- **USDT (Bitpin)** — USDT/IRT
+- **Gold (Talasea)**
+- **Silver (Noghresea)**
+- **Copper (Meschi)**
+
+You can also add custom feeds in preferences: a name, URL, color, optional request headers, and a `priceFrom` JavaScript function body that receives the parsed JSON response as `data`.
 
 Prices refresh every 15 seconds. Click the indicator to see the last successful refresh, any failed feeds, toggles for each price, a manual refresh, and settings.
 
@@ -40,15 +44,26 @@ gnome-extensions enable price-extension@en.molaei.org
 
 ## Settings
 
-Open the extension preferences to choose which prices appear and where the indicator sits.
+Open the extension preferences to choose which prices appear, where the indicator sits, and to manage custom feeds.
 
 | Setting | What it does |
 | --- | --- |
-| USDT, Gold, Silver, Copper | Show or hide each price. USDT and gold are on by default. |
+| Built-in feeds | Show or hide each built-in price. USDT and gold are on by default. Built-in feeds cannot be removed. |
+| Custom feeds | Add, edit, enable, or remove your own feeds (name, URL, color, optional headers, `priceFrom`). |
 | Placement | Left, center, or right side of the top bar. |
 | Order | Position on that side. `0` is the leftmost spot; a higher number moves the indicator to the right, past other icons. |
 
 The same show/hide switches are also in the indicator menu.
+
+### Custom feed `priceFrom`
+
+The body is run as a function with one argument, `data` (parsed JSON). It should return the price value:
+
+```js
+return data.price;
+```
+
+Optional headers are a JSON object, for example `{"Authorization":"Bearer …"}`.
 
 ## License
 

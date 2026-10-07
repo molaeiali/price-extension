@@ -37,5 +37,10 @@
       <summary>Indicator order</summary>
       <description>Position within the chosen side of the top bar. 0 is the leftmost; higher values move the indicators to the right.</description>
     </key>
+    <key name="custom-feeds" type="s">
+      <default>'[]'</default>
+      <summary>Custom price feeds</summary>
+      <description>JSON array of user-defined feeds (name, url, color, headers, priceFrom, enabled).</description>
+    </key>
   </schema>
 </schemalist>
