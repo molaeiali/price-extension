@@ -42,6 +42,15 @@ Log out and back in, then enable **Prices** in the Extensions app, or run:
 gnome-extensions enable price-extension@en.molaei.org
 ```
 
+### Package
+
+`gnome-extensions pack` does not compile GSettings schemas. Use `./pack.sh` so the zip includes `schemas/gschemas.compiled`. Without that file, the extension fails to enable.
+
+```bash
+./pack.sh --force
+gnome-extensions install --force price-extension@en.molaei.org.shell-extension.zip
+```
+
 ## Settings
 
 Open the extension preferences to choose which prices appear, where the indicator sits, and to manage custom feeds.
