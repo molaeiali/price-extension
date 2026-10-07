@@ -9,7 +9,7 @@ A GNOME Shell extension that shows live market prices in the top bar:
 
 Prices refresh every 15 seconds. Click the indicator to see the last successful refresh, any failed feeds, toggles for each price, a manual refresh, and settings.
 
-Supports GNOME Shell 46 through 51.
+Supports GNOME Shell 46 through 50.
 
 ## Install
 
@@ -28,7 +28,7 @@ UUID=price-extension@en.molaei.org
 DEST="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$UUID"
 
 mkdir -p "$DEST"
-cp -a extension.js prefs.js metadata.json icons schemas "$DEST/"
+cp -a extension.js prefs.js lib metadata.json icons schemas "$DEST/"
 glib-compile-schemas "$DEST/schemas/"
 ```
 

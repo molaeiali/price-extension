@@ -4,7 +4,7 @@ import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-const PLACEMENTS = ['left', 'center', 'right'];
+import {PLACEMENTS} from './lib/feeds.js';
 
 export default class PriceExtensionPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
