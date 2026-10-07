@@ -4,22 +4,22 @@
     <key name="show-usdt" type="b">
       <default>true</default>
       <summary>Show USDT price</summary>
-      <description>Show the Bitpin USDT/IRT price in the top bar.</description>
+      <description>Copied into the USDT feed the first time the feed list is created.</description>
     </key>
     <key name="show-gold" type="b">
       <default>true</default>
       <summary>Show gold price</summary>
-      <description>Show the Talasea gold price in the top bar.</description>
+      <description>Copied into the gold feed the first time the feed list is created.</description>
     </key>
     <key name="show-silver" type="b">
       <default>false</default>
       <summary>Show silver price</summary>
-      <description>Show the Noghresea silver price in the top bar.</description>
+      <description>Copied into the silver feed the first time the feed list is created.</description>
     </key>
     <key name="show-copper" type="b">
       <default>false</default>
       <summary>Show copper price</summary>
-      <description>Show the Meschi copper price in the top bar.</description>
+      <description>Copied into the copper feed the first time the feed list is created.</description>
     </key>
     <key name="placement" type="s">
       <choices>
@@ -39,8 +39,8 @@
     </key>
     <key name="custom-feeds" type="s">
       <default>'[]'</default>
-      <summary>Custom price feeds</summary>
-      <description>JSON array of user-defined feeds (name, url, color, headers, priceFrom, enabled).</description>
+      <summary>Price feeds</summary>
+      <description>JSON array of feeds (name, url, method, body, color, headers, priceFrom, enabled). When unset, the default feeds are copied here on first run.</description>
     </key>
   </schema>
 </schemalist>

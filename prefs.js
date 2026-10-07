@@ -1,6 +1,5 @@
 import Adw from 'gi://Adw';
 import Gdk from 'gi://Gdk';
-import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import Gtk from 'gi://Gtk';
 
@@ -12,7 +11,13 @@ import {
     serializeCustomFeeds,
     validateCustomFeedInput,
 } from './lib/custom-feeds.js';
-import {FEEDS, PLACEMENTS} from './lib/feeds.js';
+import {
+    PLACEMENTS,
+    createDefaultFeeds,
+    installDefaultFeedsIfNeeded,
+    mergeMissingDefaultFeeds,
+    missingDefaultFeeds,
+} from './lib/feeds.js';
 
 function colorFromHex(hex) {
     const value = hex.replace('#', '');
@@ -73,6 +78,15 @@ const FeedEditorDialog = GObject.registerClass({
         });
         group.add(this._urlRow);
 
+        this._methodRow = new Adw.ComboRow({
+            title: 'Method',
+            model: new Gtk.StringList({
+                strings: ['GET', 'POST'],
+            }),
+            selected: feed?.method === 'POST' ? 1 : 0,
+        });
+        group.add(this._methodRow);
+
         this._colorButton = new Gtk.ColorDialogButton({
             dialog: new Gtk.ColorDialog({title: 'Feed color'}),
             rgba: colorFromHex(feed?.color ?? '#6c8cff'),
@@ -89,6 +103,39 @@ const FeedEditorDialog = GObject.registerClass({
                 : '',
         });
         group.add(this._headersRow);
+
+        this._bodyGroup = new Adw.PreferencesGroup({
+            title: 'Body',
+            description: 'JSON sent as the POST request body.',
+        });
+        page.add(this._bodyGroup);
+
+        this._bodyView = new Gtk.TextView({
+            monospace: true,
+            wrap_mode: Gtk.WrapMode.WORD_CHAR,
+            hexpand: true,
+            vexpand: true,
+            top_margin: 8,
+            bottom_margin: 8,
+            left_margin: 8,
+            right_margin: 8,
+        });
+        this._bodyView.buffer.text = feed?.method === 'POST' ? (feed.body ?? '') : '';
+
+        const bodyScrolled = new Gtk.ScrolledWindow({
+            min_content_height: 100,
+            child: this._bodyView,
+            hexpand: true,
+        });
+        const bodyRow = new Adw.PreferencesRow();
+        bodyRow.set_child(bodyScrolled);
+        this._bodyGroup.add(bodyRow);
+
+        const syncBody = () => {
+            this._bodyGroup.visible = this._methodRow.selected === 1;
+        };
+        this._methodRow.connect('notify::selected', syncBody);
+        syncBody();
 
         const priceGroup = new Adw.PreferencesGroup({
             title: 'priceFrom',
@@ -141,6 +188,8 @@ const FeedEditorDialog = GObject.registerClass({
         const result = validateCustomFeedInput({
             name: this._nameRow.text,
             url: this._urlRow.text,
+            method: this._methodRow.selected === 1 ? 'POST' : 'GET',
+            bodyText: this._bodyView.buffer.text,
             color: hexFromColor(this._colorButton.get_rgba()),
             headersText: this._headersRow.text,
             priceFrom: this._priceFrom.buffer.text,
@@ -163,20 +212,14 @@ export default class PriceExtensionPreferences extends ExtensionPreferences {
         this._settings = settings;
         this._window = window;
 
+        installDefaultFeedsIfNeeded(settings);
+
         const page = new Adw.PreferencesPage();
         const group = new Adw.PreferencesGroup({
-            title: 'Indicators',
-            description: 'Choose which prices are shown and where they sit on the top bar.',
+            title: 'Indicator',
+            description: 'Choose where prices sit on the top bar.',
         });
         page.add(group);
-
-        for (const feed of FEEDS) {
-            const row = new Adw.SwitchRow({
-                title: feed.label,
-            });
-            settings.bind(feed.settingsKey, row, 'active', Gio.SettingsBindFlags.DEFAULT);
-            group.add(row);
-        }
 
         const placementRow = new Adw.ComboRow({
             title: 'Placement',
@@ -214,10 +257,17 @@ export default class PriceExtensionPreferences extends ExtensionPreferences {
         group.add(positionRow);
 
         this._customGroup = new Adw.PreferencesGroup({
-            title: 'Custom feeds',
-            description: 'Add your own price endpoints. Built-in feeds cannot be removed.',
+            title: 'Feeds',
+            description: 'Edit, show, or remove any feed. Bring back default feeds adds each default whose name is missing.',
         });
         page.add(this._customGroup);
+
+        this._restoreButton = new Gtk.Button({
+            label: 'Bring back default feeds',
+            css_classes: ['flat'],
+            valign: Gtk.Align.CENTER,
+        });
+        this._restoreButton.connect('clicked', () => this._restoreDefaultFeeds());
 
         const addButton = new Gtk.Button({
             label: 'Add',
@@ -225,7 +275,14 @@ export default class PriceExtensionPreferences extends ExtensionPreferences {
             valign: Gtk.Align.CENTER,
         });
         addButton.connect('clicked', () => this._openEditor());
-        this._customGroup.set_header_suffix(addButton);
+
+        const buttons = new Gtk.Box({
+            spacing: 6,
+            valign: Gtk.Align.CENTER,
+        });
+        buttons.append(this._restoreButton);
+        buttons.append(addButton);
+        this._customGroup.set_header_suffix(buttons);
 
         this._customRows = [];
         this._reloadCustomRows();
@@ -256,10 +313,11 @@ export default class PriceExtensionPreferences extends ExtensionPreferences {
         this._customRows = [];
 
         const feeds = this._readCustomFeeds();
+        this._restoreButton.sensitive = missingDefaultFeeds(feeds).length > 0;
         if (feeds.length === 0) {
             const empty = new Adw.ActionRow({
-                title: 'No custom feeds yet',
-                subtitle: 'Use Add to create one',
+                title: 'No feeds yet',
+                subtitle: 'Use Add, or bring back the default feeds',
                 sensitive: false,
             });
             this._customGroup.add(empty);
@@ -350,10 +408,21 @@ export default class PriceExtensionPreferences extends ExtensionPreferences {
         dialog.present(this._window);
     }
 
+    _restoreDefaultFeeds() {
+        const feeds = this._readCustomFeeds();
+        const next = mergeMissingDefaultFeeds(feeds);
+        if (next.length === feeds.length)
+            return;
+        this._writeCustomFeeds(next);
+    }
+
     _confirmRemove(feed) {
+        const isDefault = createDefaultFeeds().some(seed => seed.name === feed.name.trim());
         const dialog = new Adw.AlertDialog({
             heading: 'Remove feed?',
-            body: `Remove “${feed.name}”? This cannot be undone.`,
+            body: isDefault
+                ? `Remove “${feed.name}”? Bring back default feeds can add it again.`
+                : `Remove “${feed.name}”? This cannot be undone.`,
         });
         dialog.add_response('cancel', 'Cancel');
         dialog.add_response('remove', 'Remove');

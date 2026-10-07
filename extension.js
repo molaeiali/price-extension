@@ -11,9 +11,9 @@ import {
   serializeCustomFeeds,
 } from "./lib/custom-feeds.js";
 import {
-  FEEDS,
   PLACEMENTS,
   REFRESH_SECONDS,
+  installDefaultFeedsIfNeeded,
   isUsablePrice,
 } from "./lib/feeds.js";
 import { PriceGroup } from "./lib/indicator.js";
@@ -32,6 +32,8 @@ export default class PriceExtension extends Extension {
     this._indicator = null;
     this._lastRefresh = null;
 
+    installDefaultFeedsIfNeeded(this._settings);
+
     const rebuild = () => this._rebuildIndicators();
     this._settingIds = [
       this._settings.connect("changed::placement", rebuild),
@@ -40,14 +42,6 @@ export default class PriceExtension extends Extension {
         this._onCustomFeedsChanged(),
       ),
     ];
-    for (const spec of FEEDS) {
-      this._settingIds.push(
-        this._settings.connect(
-          `changed::${spec.settingsKey}`,
-          (_settings, key) => this._onBuiltinFeedSettingChanged(key),
-        ),
-      );
-    }
 
     this._loadFeeds();
     this._rebuildIndicators();
@@ -76,9 +70,10 @@ export default class PriceExtension extends Extension {
     }
 
     this._cancellable?.cancel();
-    this._session?.abort();
-    this._indicator?.destroy();
+    const indicator = this._indicator;
     this._indicator = null;
+    this._session?.abort();
+    indicator?.destroy();
 
     this._feeds = null;
     this._session = null;
@@ -100,8 +95,7 @@ export default class PriceExtension extends Extension {
   }
 
   _isFeedEnabled(spec) {
-    if (spec.custom) return spec.enabled !== false;
-    return this._settings.get_boolean(spec.settingsKey);
+    return spec.enabled !== false;
   }
 
   _loadFeeds() {
@@ -109,17 +103,6 @@ export default class PriceExtension extends Extension {
       (this._feeds ?? []).map((feed) => [feed.spec.role, feed]),
     );
     const next = [];
-
-    for (const spec of FEEDS) {
-      const prior = previous.get(spec.role);
-      next.push({
-        spec,
-        refreshing: prior?.refreshing ?? false,
-        lastPrice: prior?.lastPrice ?? null,
-        lastSuccess: prior?.lastSuccess ?? null,
-        error: prior?.error ?? false,
-      });
-    }
 
     const custom = parseCustomFeedsJson(
       this._settings.get_string("custom-feeds"),
@@ -133,6 +116,8 @@ export default class PriceExtension extends Extension {
         prior &&
         (prior.spec.url !== spec.url ||
           prior.spec.priceFromSource !== spec.priceFromSource ||
+          (prior.spec.method ?? "GET") !== (spec.method ?? "GET") ||
+          (prior.spec.body ?? "") !== (spec.body ?? "") ||
           JSON.stringify(prior.spec.headers ?? {}) !==
             JSON.stringify(spec.headers ?? {}));
 
@@ -171,32 +156,17 @@ export default class PriceExtension extends Extension {
     }
   }
 
-  _onBuiltinFeedSettingChanged(key) {
-    const feed = this._feeds?.find((item) => item.spec.settingsKey === key);
-    if (!feed || !this._settings) return;
-
-    const enabled = this._settings.get_boolean(key);
-    this._indicator?.setFeedEnabled(feed.spec.role, enabled);
-    if (enabled) this._fetch(feed);
-  }
-
   _setFeedEnabled(role, enabled) {
     const feed = this._feeds?.find((item) => item.spec.role === role);
     if (!feed || !this._settings) return;
 
-    if (feed.spec.custom) {
-      const custom = parseCustomFeedsJson(
-        this._settings.get_string("custom-feeds"),
-      );
-      const item = custom.find((entry) => entry.id === feed.spec.id);
-      if (!item || item.enabled === enabled) return;
-      item.enabled = enabled;
-      this._settings.set_string("custom-feeds", serializeCustomFeeds(custom));
-      return;
-    }
-
-    if (this._settings.get_boolean(feed.spec.settingsKey) === enabled) return;
-    this._settings.set_boolean(feed.spec.settingsKey, enabled);
+    const custom = parseCustomFeedsJson(
+      this._settings.get_string("custom-feeds"),
+    );
+    const item = custom.find((entry) => entry.id === feed.spec.id);
+    if (!item || item.enabled === enabled) return;
+    item.enabled = enabled;
+    this._settings.set_string("custom-feeds", serializeCustomFeeds(custom));
   }
 
   _rebuildIndicators() {
@@ -235,6 +205,14 @@ export default class PriceExtension extends Extension {
     for (const feed of this._feeds ?? []) this._fetch(feed);
   }
 
+  _setJsonBody(message, body) {
+    const encoded = new TextEncoder().encode(String(body ?? ""));
+    message.set_request_body_from_bytes(
+      "application/json",
+      new GLib.Bytes(encoded),
+    );
+  }
+
   _applyRequestHeaders(message, headers) {
     const merged = { "Cache-Control": "no-cache", ...(headers ?? {}) };
     for (const [name, value] of Object.entries(merged)) {
@@ -269,7 +247,8 @@ export default class PriceExtension extends Extension {
 
     const role = feed.spec.role;
     feed.refreshing = true;
-    const message = Soup.Message.new("GET", feed.spec.url);
+    const method = feed.spec.method === "POST" ? "POST" : "GET";
+    const message = Soup.Message.new(method, feed.spec.url);
     if (!message) {
       feed.refreshing = false;
       feed.error = true;
@@ -277,6 +256,7 @@ export default class PriceExtension extends Extension {
       console.error(`${feed.spec.label} price: invalid URL`);
       return;
     }
+    if (method === "POST") this._setJsonBody(message, feed.spec.body);
     this._applyRequestHeaders(message, feed.spec.headers);
 
     this._session.send_and_read_async(

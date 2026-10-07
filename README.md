@@ -2,14 +2,14 @@
 
 A GNOME Shell extension that shows live market prices in the top bar.
 
-Built-in feeds:
+On first run these feeds are added, and you can edit or remove any of them:
 
 - **USDT (Bitpin)** — USDT/IRT
 - **Gold (Talasea)**
 - **Silver (Noghresea)**
 - **Copper (Meschi)**
 
-You can also add custom feeds in preferences: a name, URL, color, optional request headers, and a `priceFrom` JavaScript function body that receives the parsed JSON response as `data`.
+Each feed has a name, URL, HTTP method (`GET` or `POST`), color, optional request headers, an optional JSON body for `POST`, and a `priceFrom` JavaScript function body that receives the parsed JSON response as `data`. **Bring back default feeds** adds any default whose name is no longer in the list.
 
 Prices refresh every 15 seconds. Click the indicator to see the last successful refresh, any failed feeds, toggles for each price, a manual refresh, and settings.
 
@@ -53,18 +53,18 @@ gnome-extensions install --force price-extension@en.molaei.org.shell-extension.z
 
 ## Settings
 
-Open the extension preferences to choose which prices appear, where the indicator sits, and to manage custom feeds.
+Open the extension preferences to choose which prices appear, where the indicator sits, and to edit feeds.
 
 | Setting | What it does |
 | --- | --- |
-| Built-in feeds | Show or hide each built-in price. USDT and gold are on by default. Built-in feeds cannot be removed. |
-| Custom feeds | Add, edit, enable, or remove your own feeds (name, URL, color, optional headers, `priceFrom`). |
+| Feeds | Add, edit, show, hide, or remove any feed, including the ones added on first run. USDT and gold start visible. Silver and copper start hidden. |
+| Bring back default feeds | Add each default feed whose name is missing. Feeds you renamed or kept are left as they are. |
 | Placement | Left, center, or right side of the top bar. |
 | Order | Position on that side. `0` is the leftmost spot; a higher number moves the indicator to the right, past other icons. |
 
 The same show/hide switches are also in the indicator menu.
 
-### Custom feed `priceFrom`
+### Feed `priceFrom`
 
 The body is run as a function with one argument, `data` (parsed JSON). It should return the price value:
 
@@ -73,6 +73,8 @@ return data.price;
 ```
 
 Optional headers are a JSON object, for example `{"Authorization":"Bearer …"}`.
+
+Choose `POST` to send a JSON request body. `GET` sends no body.
 
 ## License
 
